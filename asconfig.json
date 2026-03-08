@@ -45,7 +45,7 @@
             "reference-types",
             "multi-value"
         ],
-        "runtime": "stub",
+        "runtime": "memory",
         "memoryBase": 0,
         "initialMemory": 1,
         "exportStart": "start",
