@@ -789,7 +789,10 @@
       <button class="buy-btn" id="buyBtn" onclick="buyTicket()">
         Buy Ticket — 1,000 sats
       </button>
-      <div class="btn-note" id="btnNote">Connect wallet to participate</div>
+      <div class="btn-note" id="btnNote">Connetti il wallet per partecipare</div>
+      <button class="buy-btn" id="drawBtn" onclick="drawWinner()" style="display:none;margin-top:10px;background:var(--green);color:#000">
+        Draw Winner (drand VRF)
+      </button>
 
       <div class="oracle-info">
         <div class="oracle-dot"></div>
@@ -854,7 +857,71 @@
 <div id="toastContainer"></div>
 
 <script>
-// ── State ──────────────────────────────────────────────────────────────────
+// ── Config ─────────────────────────────────────────────────────────────────
+const CONTRACT = 'opt1sqptxaeau5tnlmf6yknz242ntuyzcvksff58r8e70';
+const RPC      = 'https://testnet.opnet.org';
+
+// Pre-computed selectors (via ABICoder.encodeSelector):
+const SEL = {
+  buyTicket:       0x14c6d469,
+  startRound:      0x09320a21,
+  registerTicket:  0xef169864,
+  drawWinner:      0x22713a93,
+  getRoundInfo:    0x55cb1cf9,
+  getTicketHolder: 0x6ed39924,
+};
+
+// ── Calldata helpers ────────────────────────────────────────────────────────
+function u256Bytes(val) {
+  const buf = new Uint8Array(32);
+  let n = BigInt(val);
+  for (let i = 31; i >= 0; i--) { buf[i] = Number(n & 0xffn); n >>= 8n; }
+  return buf;
+}
+
+function buildCalldata(selector, ...u256Params) {
+  const parts = [
+    new Uint8Array([(selector>>>24)&0xff, (selector>>>16)&0xff, (selector>>>8)&0xff, selector&0xff]),
+    ...u256Params.map(u256Bytes),
+  ];
+  const out = new Uint8Array(parts.reduce((s, p) => s + p.length, 0));
+  let off = 0;
+  for (const p of parts) { out.set(p, off); off += p.length; }
+  return out;
+}
+
+function toHex(bytes) {
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function fromBase64(b64) {
+  return Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+}
+
+function readU256(bytes, offset) {
+  let n = 0n;
+  for (let i = 0; i < 32; i++) n = (n << 8n) | BigInt(bytes[offset + i]);
+  return n;
+}
+
+// ── Chain read (btc_call) ───────────────────────────────────────────────────
+async function chainCall(calldataBytes) {
+  const body = {
+    jsonrpc: '2.0',
+    method: 'btc_call',
+    params: [CONTRACT, toHex(calldataBytes), null, null],
+    id: Date.now(),
+  };
+  const res = await fetch(RPC, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return res.json();
+}
+
+// ── State ───────────────────────────────────────────────────────────────────
+
 const state = {
   connected: false,
   address: null,
@@ -868,158 +935,199 @@ const state = {
   },
   selectedRoomSize: 5,
   holders: [],
-  history: [
-    // Demo data — replace with on-chain data from OP_NET
-    { round: 0, winner: 'bc1p...3x7f', jackpot: 85000, txid: 'abc123' },
-  ],
+  history: [],
   myTickets: 0,
 };
 
-// ── Wallet ─────────────────────────────────────────────────────────────────
+let pollTimer = null;
+
+function recalculateMyTickets() {
+  if (!state.address) { state.myTickets = 0; return; }
+  const addrLower = state.address.toLowerCase();
+  state.myTickets = state.holders.filter(h => h.address.toLowerCase() === addrLower).length;
+}
+
+// ── Wallet ──────────────────────────────────────────────────────────────────
 async function toggleWallet() {
-  if (state.connected) {
-    disconnectWallet();
-    return;
-  }
+  if (state.connected) { disconnectWallet(); return; }
   await connectWallet();
 }
 
 async function connectWallet() {
-  // OP_WALLET injects window.opnet
   if (typeof window.opnet === 'undefined') {
-    showToast('OP_WALLET not detected. Install it from the Chrome Web Store.', 'error');
-    setTimeout(() => {
-      window.open('https://chromewebstore.google.com/detail/opwallet/pmbjpcmaaladnfpacpmhmnfmpklgbdjb', '_blank');
-    }, 1500);
+    showToast('OP_WALLET non trovato. Installalo dal Chrome Web Store.', 'error');
+    setTimeout(() => window.open('https://chromewebstore.google.com/detail/opwallet/pmbjpcmaaladnfpacpmhmnfmpklgbdjb', '_blank'), 1500);
     return;
   }
-
   try {
     const accounts = await window.opnet.requestAccounts();
     if (accounts && accounts.length > 0) {
       state.connected = true;
       state.address = accounts[0];
       updateWalletUI();
-      showToast('Wallet connected: ' + truncate(state.address), 'success');
+      showToast('Wallet connesso: ' + truncate(state.address), 'success');
       fetchContractState();
+      startPolling();
     }
   } catch (e) {
-    showToast('Connection rejected.', 'error');
+    showToast('Connessione rifiutata.', 'error');
   }
 }
 
 function disconnectWallet() {
   state.connected = false;
   state.address = null;
+  stopPolling();
   updateWalletUI();
-  showToast('Wallet disconnected.', 'info');
+  showToast('Wallet disconnesso.', 'info');
 }
 
 function updateWalletUI() {
-  const btn = document.getElementById('walletBtn');
-  const txt = document.getElementById('walletBtnText');
+  const btn  = document.getElementById('walletBtn');
   const note = document.getElementById('btnNote');
   const buyBtn = document.getElementById('buyBtn');
-
+  const drawBtn = document.getElementById('drawBtn');
   if (state.connected) {
     btn.classList.add('connected');
     btn.innerHTML = `<span class="wallet-dot"></span><span>${truncate(state.address)}</span>`;
-    note.textContent = 'Transaction via OP_WALLET';
+    note.textContent = 'Transazione via OP_WALLET';
     buyBtn.disabled = !state.round.isOpen;
   } else {
     btn.classList.remove('connected');
     btn.innerHTML = `<span>Connect OP_WALLET</span>`;
-    note.textContent = 'Connect wallet to participate';
+    note.textContent = 'Connetti il wallet per partecipare';
     buyBtn.disabled = true;
+  }
+  if (drawBtn) {
+    const showDraw = state.connected && state.round.isOpen && state.round.ticketCount >= state.round.maxTickets;
+    drawBtn.style.display = showDraw ? 'block' : 'none';
   }
 }
 
-// ── Contract interaction ───────────────────────────────────────────────────
+// ── On-chain reads ───────────────────────────────────────────────────────────
 async function fetchContractState() {
-  // In production: call getRoundInfo() via OP_NET JSON-RPC and hydrate from chain data.
-  // Keep the UI empty by default so users can create testnet room presets.
-  state.holders = [];
-  state.round.ticketCount = 0;
-  state.round.jackpot = 0;
-  state.myTickets = 0;
-  render();
+  try {
+    // getRoundInfo()
+    const res = await chainCall(buildCalldata(SEL.getRoundInfo));
+    if (!res.result || res.result.revert || !res.result.result) {
+      console.warn('getRoundInfo error:', res);
+      render();
+      return;
+    }
+    const raw = fromBase64(res.result.result);
+    // roundId(32) + ticketPrice(32) + maxTickets(32) + ticketCount(32) + jackpot(32) + isOpen(1)
+    state.round.id          = Number(readU256(raw, 0));
+    state.round.ticketPrice = Number(readU256(raw, 32));
+    state.round.maxTickets  = Number(readU256(raw, 64));
+    state.round.ticketCount = Number(readU256(raw, 96));
+    state.round.jackpot     = Number(readU256(raw, 128));
+    state.round.isOpen      = raw[160] === 1;
+
+    // getTicketHolder for each slot
+    state.holders = [];
+    for (let i = 0; i < state.round.ticketCount; i++) {
+      const hRes = await chainCall(buildCalldata(SEL.getTicketHolder, BigInt(i)));
+      if (hRes.result && hRes.result.result) {
+        const addrBytes = fromBase64(hRes.result.result);
+        state.holders.push({ index: i, address: '0x' + toHex(addrBytes) });
+      }
+    }
+    recalculateMyTickets();
+    updateWalletUI();
+    render();
+  } catch (e) {
+    console.error('fetchContractState:', e);
+    render();
+  }
 }
 
+function startPolling() {
+  stopPolling();
+  pollTimer = setInterval(() => fetchContractState(), 15000);
+}
+
+function stopPolling() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
+
+// ── On-chain writes ──────────────────────────────────────────────────────────
 function setRoomSize(size) {
   if (![5, 10, 20].includes(size)) return;
   state.selectedRoomSize = size;
-  ['5', '10', '20'].forEach((v) => {
-    const el = document.getElementById(`roomSize${v}`);
-    el.classList.toggle('active', Number(v) === size);
+  ['5', '10', '20'].forEach(v => {
+    document.getElementById(`roomSize${v}`).classList.toggle('active', Number(v) === size);
   });
 }
 
 async function createRoom() {
-  const buyInRaw = document.getElementById('buyInInput').value;
-  const buyIn = Number(buyInRaw);
+  const buyIn = Math.floor(Number(document.getElementById('buyInInput').value));
+  if (!state.connected)                   { showToast('Connetti OP_WALLET prima.', 'error'); return; }
+  if (!Number.isFinite(buyIn) || buyIn <= 0) { showToast('Buy-in non valido.', 'error'); return; }
+  if (![5,10,20].includes(state.selectedRoomSize)) { showToast('Room size non valida.', 'error'); return; }
+  if (state.round.isOpen)                 { showToast('Round già aperto.', 'error'); return; }
 
-  if (!state.connected) {
-    showToast('Connect your OP_WALLET first.', 'error');
-    return;
+  showToast('Creazione room in corso...', 'info');
+  try {
+    const calldata = buildCalldata(SEL.startRound, BigInt(buyIn), BigInt(state.selectedRoomSize));
+    const result = await window.opnet.web3.signAndBroadcastInteraction({
+      to: CONTRACT,
+      calldata,
+      feeRate: 10,
+      maximumAllowedSatToSpend: 10000n,
+    });
+    const txid = result?.[0]?.txid || result?.[1]?.txid || '';
+    showToast('Room creata! Tx: ' + truncate(txid), 'success');
+    setTimeout(() => fetchContractState(), 8000);
+  } catch (e) {
+    showToast('Errore: ' + (e?.message || String(e)), 'error');
   }
-
-  if (!Number.isFinite(buyIn) || buyIn <= 0) {
-    showToast('Buy-in must be greater than zero.', 'error');
-    return;
-  }
-
-  if (![5, 10, 20].includes(state.selectedRoomSize)) {
-    showToast('Room size must be 5, 10, or 20.', 'error');
-    return;
-  }
-
-  if (state.round.isOpen) {
-    showToast('A room is already open. Draw winner before opening a new one.', 'error');
-    return;
-  }
-
-  // Testnet-ready UX: this is where startRound(buyIn, roomSize) should be sent on-chain.
-  state.round.id += 1;
-  state.round.ticketPrice = Math.floor(buyIn);
-  state.round.maxTickets = state.selectedRoomSize;
-  state.round.ticketCount = 0;
-  state.round.jackpot = 0;
-  state.round.isOpen = true;
-  state.holders = [];
-  state.myTickets = 0;
-  render();
-  showToast(`Room created: ${state.selectedRoomSize} players · ${buyIn} sats buy-in`, 'success');
 }
 
 async function buyTicket() {
-  if (!state.connected) {
-    showToast('Connect your OP_WALLET first.', 'error');
-    return;
+  if (!state.connected)       { showToast('Connetti OP_WALLET prima.', 'error'); return; }
+  if (!state.round.isOpen)    { showToast('Nessun round aperto.', 'error'); return; }
+  if (state.round.ticketCount >= state.round.maxTickets) { showToast('Room piena.', 'error'); return; }
+
+  showToast('Invio transazione acquisto ticket...', 'info');
+  try {
+    const calldata = buildCalldata(SEL.buyTicket);
+    const result = await window.opnet.web3.signAndBroadcastInteraction({
+      to: CONTRACT,
+      calldata,
+      feeRate: 10,
+      maximumAllowedSatToSpend: 10000n,
+    });
+    const txid = result?.[0]?.txid || result?.[1]?.txid || '';
+    showToast('Ticket acquistato! Tx: ' + truncate(txid), 'success');
+    setTimeout(() => fetchContractState(), 8000);
+  } catch (e) {
+    showToast('Errore: ' + (e?.message || String(e)), 'error');
   }
+}
 
-  if (!state.round.isOpen) {
-    showToast('No round is currently open.', 'error');
-    return;
-  }
-
-  // In production: send BTC to contract P2OP address via OP_WALLET
-  // then the operator calls registerTicket(buyer) on-chain
-  showToast('Initiating ticket purchase...', 'info');
-
-  // Simulate async purchase
-  setTimeout(() => {
-    const newIndex = state.round.ticketCount;
-    state.holders.push({ index: newIndex, address: state.address });
-    state.round.ticketCount++;
-    state.round.jackpot += state.round.ticketPrice;
-    if (state.round.ticketCount >= state.round.maxTickets) {
-      state.round.isOpen = false;
-      showToast('Room filled. Ready for winner draw.', 'info');
+async function drawWinner() {
+  if (!state.connected) { showToast('Connetti OP_WALLET prima.', 'error'); return; }
+  showToast('Recupero VRF seed da drand...', 'info');
+  try {
+    const drand = await fetch('https://api.drand.love/public/latest').then(r => r.json());
+    let vrfBig = 0n;
+    for (let i = 0; i < drand.randomness.length; i += 2) {
+      vrfBig = (vrfBig << 8n) | BigInt(parseInt(drand.randomness.slice(i, i + 2), 16));
     }
-    state.myTickets++;
-    render();
-    showToast(`Ticket #${newIndex} purchased! Good luck. 🎰`, 'success');
-  }, 1200);
+    showToast('VRF ottenuto. Invio tx drawWinner...', 'info');
+    const calldata = buildCalldata(SEL.drawWinner, vrfBig);
+    const result = await window.opnet.web3.signAndBroadcastInteraction({
+      to: CONTRACT,
+      calldata,
+      feeRate: 10,
+      maximumAllowedSatToSpend: 10000n,
+    });
+    const txid = result?.[0]?.txid || result?.[1]?.txid || '';
+    showToast('Vincitore estratto! Tx: ' + truncate(txid), 'success');
+    setTimeout(() => fetchContractState(), 8000);
+  } catch (e) {
+    showToast('Errore: ' + (e?.message || String(e)), 'error');
+  }
 }
 
 // ── Render ─────────────────────────────────────────────────────────────────
@@ -1105,9 +1213,9 @@ function renderHistory() {
     grid.innerHTML += `
       <div class="history-row">
         <span class="round-num">#${h.round}</span>
-        <span class="winner-addr">${h.winner}</span>
+        <span class="winner-addr">${truncate(h.winner)}</span>
         <span class="jackpot-val hide-mobile">${h.jackpot.toLocaleString()} sats</span>
-        <span><span class="win-badge">✓ PAID</span></span>
+        <span><span class="win-badge">${h.status || '✓ PAID'}</span></span>
       </div>
     `;
   });
@@ -1132,25 +1240,19 @@ function showToast(msg, type = 'info') {
 // ── Init ───────────────────────────────────────────────────────────────────
 render();
 
-// Animate jackpot on load
-let count = 0;
-const target = state.round.jackpot;
-const ticker = document.getElementById('jackpotTicker');
-const step = Math.max(1, Math.floor(target / 40));
-const interval = setInterval(() => {
-  count = Math.min(count + step, target);
-  ticker.textContent = count.toLocaleString();
-  if (count >= target) clearInterval(interval);
-}, 30);
-
-// Check for OP_WALLET on load
 window.addEventListener('load', () => {
   setRoomSize(state.selectedRoomSize);
+  // Read chain state immediately (even without wallet — public view)
+  fetchContractState();
+
   if (typeof window.opnet !== 'undefined') {
     window.opnet.on('accountsChanged', (accounts) => {
       if (accounts.length > 0) {
         state.address = accounts[0];
+        state.connected = true;
         updateWalletUI();
+        fetchContractState();
+        startPolling();
       } else {
         disconnectWallet();
       }

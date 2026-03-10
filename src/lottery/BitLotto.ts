@@ -144,6 +144,8 @@ export class BitLotto extends OP_NET {
                 return this.registerTicket(calldata);
             case encodeSelector('drawWinner(uint256)'):
                 return this.drawWinner(calldata);
+            case encodeSelector('buyTicket()'):
+                return this.buyTicket(calldata);
             case encodeSelector('getRoundInfo()'):
                 return this.getRoundInfo();
             case encodeSelector('getTicketHolder(uint256)'):
@@ -182,7 +184,39 @@ export class BitLotto extends OP_NET {
         return writer;
     }
 
-    // ─── Admin: Register a ticket purchase ───────────────────────────────
+    // ─── Public: Buy a ticket (self-registration) ─────────────────────
+
+    /**
+     * buyTicket()
+     * Called directly by any player. Registers Blockchain.tx.sender as the buyer.
+     * No BTC value check: trust-model — the deployer controls startRound timing and
+     * off-chain payout. Future: add native BTC value assertion when OP_NET supports it.
+     */
+    private buyTicket(_calldata: Calldata): BytesWriter {
+        if (!this._isOpen.value) {
+            throw new Revert('No round is currently open');
+        }
+
+        const count = this._ticketCount.value;
+        if (u256.ge(count, this._maxTickets.value)) {
+            throw new Revert('Round is full');
+        }
+
+        const buyer: Address = Blockchain.tx.sender;
+        const index = count.toU32();
+        this._ticketHolders.set(index, buyer);
+
+        this._jackpot.value     = SafeMath.add(this._jackpot.value, this._ticketPrice.value);
+        this._ticketCount.value = SafeMath.add(count, u256.fromU32(1));
+
+        this.emitEvent(new TicketPurchasedEvent(buyer, count));
+
+        const writer = new BytesWriter(32);
+        writer.writeU256(count);
+        return writer;
+    }
+
+    // ─── Admin: Register a ticket purchase (operator override) ───────────
 
     /**
      * registerTicket(buyer: address)
