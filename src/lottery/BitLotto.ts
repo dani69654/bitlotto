@@ -28,6 +28,10 @@ const PTR_IS_OPEN: u16        = 6;
 const PTR_TICKET_HOLDERS: u16 = 7;  // StoredAddressArray: index => buyer address
 const PTR_WINNER: u16         = 8;  // Last winner address (stored as StoredAddressArray of length 1)
 
+const ROOM_SIZE_5: u32 = 5;
+const ROOM_SIZE_10: u32 = 10;
+const ROOM_SIZE_20: u32 = 20;
+
 // ─── Events ────────────────────────────────────────────────────────────────
 
 class TicketPurchasedEvent extends NetEvent {
@@ -114,12 +118,17 @@ export class BitLotto extends OP_NET {
         this._ticketHolders = new StoredAddressArray(PTR_TICKET_HOLDERS, EMPTY_POINTER, 10000);
     }
 
+    private isValidRoomSize(size: u256): bool {
+        const value = size.toU32();
+        return value == ROOM_SIZE_5 || value == ROOM_SIZE_10 || value == ROOM_SIZE_20;
+    }
+
     // ─── One-time initialization ──────────────────────────────────────────
 
     public override onDeployment(_calldata: Calldata): void {
         this._roundId.value     = u256.fromU32(1);
         this._ticketPrice.value = u256.fromU32(1000);  // default: 1000 satoshis
-        this._maxTickets.value  = u256.fromU32(100);   // default: 100 tickets
+        this._maxTickets.value  = u256.fromU32(ROOM_SIZE_5); // default: 5 players room
         this._ticketCount.value = u256.Zero;
         this._jackpot.value     = u256.Zero;
         this._isOpen.value      = false;
@@ -158,7 +167,7 @@ export class BitLotto extends OP_NET {
 
         if (u256.eq(price, u256.Zero))  throw new Revert('Ticket price must be > 0');
         if (u256.eq(maxTix, u256.Zero)) throw new Revert('Max tickets must be > 0');
-        if (u256.gt(maxTix, u256.fromU32(10000))) throw new Revert('Max tickets cannot exceed 10000');
+        if (!this.isValidRoomSize(maxTix)) throw new Revert('Room size must be 5, 10, or 20');
 
         this._ticketPrice.value = price;
         this._maxTickets.value  = maxTix;

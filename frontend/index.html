@@ -304,6 +304,82 @@
       margin-bottom: 28px;
     }
 
+    .room-config {
+      border: 1px solid var(--border2);
+      padding: 14px;
+      margin-bottom: 20px;
+    }
+
+    .room-config-title {
+      font-size: 9px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 10px;
+    }
+
+    .room-size-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .room-size-btn {
+      background: transparent;
+      border: 1px solid var(--border2);
+      color: var(--white);
+      padding: 8px 0;
+      font-size: 11px;
+      font-family: var(--mono);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .room-size-btn.active,
+    .room-size-btn:hover {
+      border-color: var(--orange);
+      color: var(--orange);
+    }
+
+    .room-buyin-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .room-buyin-input {
+      flex: 1;
+      background: #0a0a0a;
+      border: 1px solid var(--border2);
+      color: var(--white);
+      font-family: var(--mono);
+      font-size: 12px;
+      padding: 10px;
+      outline: none;
+    }
+
+    .room-buyin-input:focus {
+      border-color: var(--orange);
+    }
+
+    .create-room-btn {
+      background: transparent;
+      border: 1px solid var(--orange-dim);
+      color: var(--orange);
+      font-family: var(--mono);
+      font-size: 11px;
+      padding: 10px 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+
+    .create-room-btn:hover {
+      border-color: var(--orange);
+      background: rgba(247,147,26,0.08);
+    }
+
     .progress-bar-wrap {
       margin-bottom: 24px;
     }
@@ -687,10 +763,23 @@
       <div class="ticket-price-display" id="priceDisplay">1,000 <span style="font-size:16px;color:var(--muted);font-family:var(--mono)">sats</span></div>
       <div class="ticket-price-sub" id="priceBTC">≈ 0.00001000 BTC</div>
 
+      <div class="room-config">
+        <div class="room-config-title">Create Room (5 / 10 / 20 players)</div>
+        <div class="room-size-grid">
+          <button class="room-size-btn active" id="roomSize5" onclick="setRoomSize(5)">5 players</button>
+          <button class="room-size-btn" id="roomSize10" onclick="setRoomSize(10)">10 players</button>
+          <button class="room-size-btn" id="roomSize20" onclick="setRoomSize(20)">20 players</button>
+        </div>
+        <div class="room-buyin-row">
+          <input class="room-buyin-input" id="buyInInput" type="number" min="1" step="1" value="1000" placeholder="Buy-in (sats)" />
+          <button class="create-room-btn" onclick="createRoom()">Create</button>
+        </div>
+      </div>
+
       <div class="progress-bar-wrap">
         <div class="progress-label">
           <span>TICKETS SOLD</span>
-          <span id="progressLabel">0 / 100</span>
+          <span id="progressLabel">0 / 5</span>
         </div>
         <div class="progress-bar">
           <div class="progress-fill" id="progressFill" style="width:0%"></div>
@@ -770,13 +859,14 @@ const state = {
   connected: false,
   address: null,
   round: {
-    id: 1,
+    id: 0,
     ticketPrice: 1000,
-    maxTickets: 100,
+    maxTickets: 5,
     ticketCount: 0,
     jackpot: 0,
-    isOpen: true,
+    isOpen: false,
   },
+  selectedRoomSize: 5,
   holders: [],
   history: [
     // Demo data — replace with on-chain data from OP_NET
@@ -846,17 +936,59 @@ function updateWalletUI() {
 
 // ── Contract interaction ───────────────────────────────────────────────────
 async function fetchContractState() {
-  // In production: call getRoundInfo() via OP_NET JSON-RPC
-  // For demo, we use mock state + simulate a few ticket holders
-  state.holders = [
-    { index: 0, address: 'bc1p4y3k...9zx2' },
-    { index: 1, address: 'bc1pq8rm...7ksw' },
-    { index: 2, address: state.address || 'bc1p0000...0000' },
-  ];
-  state.round.ticketCount = 3;
-  state.round.jackpot = 3000;
-  state.myTickets = 1;
+  // In production: call getRoundInfo() via OP_NET JSON-RPC and hydrate from chain data.
+  // Keep the UI empty by default so users can create testnet room presets.
+  state.holders = [];
+  state.round.ticketCount = 0;
+  state.round.jackpot = 0;
+  state.myTickets = 0;
   render();
+}
+
+function setRoomSize(size) {
+  if (![5, 10, 20].includes(size)) return;
+  state.selectedRoomSize = size;
+  ['5', '10', '20'].forEach((v) => {
+    const el = document.getElementById(`roomSize${v}`);
+    el.classList.toggle('active', Number(v) === size);
+  });
+}
+
+async function createRoom() {
+  const buyInRaw = document.getElementById('buyInInput').value;
+  const buyIn = Number(buyInRaw);
+
+  if (!state.connected) {
+    showToast('Connect your OP_WALLET first.', 'error');
+    return;
+  }
+
+  if (!Number.isFinite(buyIn) || buyIn <= 0) {
+    showToast('Buy-in must be greater than zero.', 'error');
+    return;
+  }
+
+  if (![5, 10, 20].includes(state.selectedRoomSize)) {
+    showToast('Room size must be 5, 10, or 20.', 'error');
+    return;
+  }
+
+  if (state.round.isOpen) {
+    showToast('A room is already open. Draw winner before opening a new one.', 'error');
+    return;
+  }
+
+  // Testnet-ready UX: this is where startRound(buyIn, roomSize) should be sent on-chain.
+  state.round.id += 1;
+  state.round.ticketPrice = Math.floor(buyIn);
+  state.round.maxTickets = state.selectedRoomSize;
+  state.round.ticketCount = 0;
+  state.round.jackpot = 0;
+  state.round.isOpen = true;
+  state.holders = [];
+  state.myTickets = 0;
+  render();
+  showToast(`Room created: ${state.selectedRoomSize} players · ${buyIn} sats buy-in`, 'success');
 }
 
 async function buyTicket() {
@@ -880,6 +1012,10 @@ async function buyTicket() {
     state.holders.push({ index: newIndex, address: state.address });
     state.round.ticketCount++;
     state.round.jackpot += state.round.ticketPrice;
+    if (state.round.ticketCount >= state.round.maxTickets) {
+      state.round.isOpen = false;
+      showToast('Room filled. Ready for winner draw.', 'info');
+    }
     state.myTickets++;
     render();
     showToast(`Ticket #${newIndex} purchased! Good luck. 🎰`, 'success');
@@ -1009,6 +1145,7 @@ const interval = setInterval(() => {
 
 // Check for OP_WALLET on load
 window.addEventListener('load', () => {
+  setRoomSize(state.selectedRoomSize);
   if (typeof window.opnet !== 'undefined') {
     window.opnet.on('accountsChanged', (accounts) => {
       if (accounts.length > 0) {

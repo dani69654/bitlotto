@@ -8,7 +8,7 @@ BitLotto is an on-chain lottery running directly on Bitcoin Layer 1 via the OP_N
 
 ## How It Works
 
-1. **Deployer opens a round** — sets ticket price (in satoshis) and max number of tickets
+1. **Deployer opens a room/round** — sets buy-in (in satoshis) and room size (`5`, `10`, or `20` players)
 2. **Players buy tickets** — send BTC to the contract's P2OP address; the deployer registers each purchase on-chain
 3. **Round closes** — when tickets sell out or the deployer closes manually
 4. **VRF draw** — deployer submits a seed from an external VRF oracle (e.g. [drand](https://drand.love/))
@@ -27,7 +27,7 @@ Written in **AssemblyScript**, compiled to **WebAssembly**, deployed on **OP_NET
 
 | Method | Access | Description |
 |--------|--------|-------------|
-| `startRound(ticketPrice, maxTickets)` | Deployer | Opens a new lottery round |
+| `startRound(ticketPrice, maxTickets)` | Deployer | Opens a new round with room size `5/10/20` |
 | `registerTicket(buyer)` | Deployer | Records a ticket purchase on-chain |
 | `drawWinner(vrfSeed)` | Deployer | Selects winner and closes the round |
 | `getRoundInfo()` | Public | Returns current round state |
@@ -45,7 +45,7 @@ Written in **AssemblyScript**, compiled to **WebAssembly**, deployed on **OP_NET
 
 - `roundId` — current round number
 - `ticketPrice` — price per ticket in satoshis
-- `maxTickets` — maximum tickets per round
+- `maxTickets` — room size (only `5`, `10`, or `20`)
 - `ticketCount` — tickets sold so far
 - `jackpot` — accumulated satoshis in the prize pool
 - `isOpen` — whether a round is currently active
@@ -127,14 +127,26 @@ npx asc src/lottery/index.ts --target lottery
 2. Click **Deploy** → drag `build/BitLotto.wasm`
 3. Confirm the transaction
 
-### Run a round (Regtest)
+### Run a room (Regtest/Testnet)
 
 ```bash
 # Get regtest BTC from the faucet
 # https://faucet.opnet.org/
 
 # Then interact via OP_WALLET or the frontend
+# Room sizes are limited on-chain to 5 / 10 / 20 players
 ```
+
+### Testnet live flow
+
+1. In OP_WALLET select **Testnet 3**.
+2. Deploy `build/BitLotto.wasm` and save the contract address.
+3. Open a room with:
+   - `ticketPrice` = desired buy-in in sats
+   - `maxTickets` = `5`, `10`, or `20`
+4. Players send BTC to the contract address and buy tickets.
+5. Operator verifies payments, calls `registerTicket(buyer)` for each player.
+6. When room is full (or manually closed), call `drawWinner(vrfSeed)` and pay winner off-chain.
 
 ---
 
