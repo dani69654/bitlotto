@@ -1,5 +1,9 @@
 {
     "targets": {
+        "lottery": {
+            "outFile": "build/BitLotto.wasm",
+            "use": ["abort=src/lottery/index/abort"]
+        },
         "token": {
             "outFile": "build/MyToken.wasm",
             "use": ["abort=src/token/index/abort"]

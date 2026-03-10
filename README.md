@@ -1,286 +1,169 @@
-# Deploying and Customizing an OP_20 Token on OP_NET
+# 🎰 BitLotto
 
-![Bitcoin](https://img.shields.io/badge/Bitcoin-000?style=for-the-badge&logo=bitcoin&logoColor=white)
-![AssemblyScript](https://img.shields.io/badge/assembly%20script-%23000000.svg?style=for-the-badge&logo=assemblyscript&logoColor=white)
-![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)
-![NodeJS](https://img.shields.io/badge/Node%20js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)
-![WebAssembly](https://img.shields.io/badge/WebAssembly-654FF0?style=for-the-badge&logo=webassembly&logoColor=white)
-![NPM](https://img.shields.io/badge/npm-CB3837?style=for-the-badge&logo=npm&logoColor=white)
+**Trustless Bitcoin L1 Lottery powered by OP_NET**
 
-[![code style: prettier](https://img.shields.io/badge/code_style-prettier-ff69b4.svg?style=flat-square)](https://github.com/prettier/prettier)
-
-## Prerequisites
-
-- Ensure you have [Node.js](https://nodejs.org/en/download/prebuilt-installer) and [npm](https://www.npmjs.com/)
-  installed on your computer.
-
-## Step-by-Step Guide
-
-### 1. Install OP_WALLET Chrome Extension
-
-- Download and install the [OP_WALLET Chrome Extension](https://opnet.org).
-- Set up the wallet and switch the network to Regtest.
-
-### 2. Obtain Regtest Bitcoin
-
-- If you don't have any Regtest Bitcoin, get some from [this faucet](https://faucet.opnet.org/).
-
-### 3. Download OP_20 Template Contract
-
-- Clone the [OP_20 template contract](https://github.com/btc-vision/OP_20) repository:
-    ```sh
-    git clone https://github.com/btc-vision/OP_20.git
-    ```
-
-### 4. Edit Token Details
-
-This step is crucial for customizing your OP_20 token. You will need to adjust several key properties such as
-`maxSupply`, `decimals`, `name`, and `symbol`.
-
-#### **Understanding Token Properties**
-
-Here’s what each property means and how you can customize it:
-
-1. **`maxSupply`**:
-
-- This defines the total supply of your token.
-- It’s a `u256` value representing the maximum number of tokens that will ever exist.
-- The number should include the full number of decimals.
-- **Example**: If you want a total supply of 1,000,000 tokens with 18 decimals, the value should be
-  `1000000000000000000000000`.
-
-```typescript
-const maxSupply: u256 = u256.fromString('1000000000000000000000000000'); // Your max supply. (Here, 1 billion tokens)
-```
-
-2. **`decimals`**:
-
-- This property defines how divisible your token is.
-- A value of `18` means the token can be divided down to 18 decimal places, similar to how Ethereum handles its tokens.
-
-```typescript
-const decimals: u8 = 18; // Your decimals
-```
-
-3. **`name`**:
-
-- The `name` is a string representing the full name of your token.
-- This will be displayed in wallets and exchanges.
-
-```typescript
-const name: string = 'Test'; // Your token name
-```
-
-4. **`symbol`**:
-
-- The `symbol` is a short string representing the ticker symbol of your token.
-- Similar to how "BTC" represents Bitcoin.
-
-```typescript
-const symbol: string = 'TEST'; // Your token symbol
-```
-
-#### **Modifying the Contract Code**
-
-Open the `OP_20` template repository in your IDE or text editor and navigate to `src/contracts/token/MyToken.ts`. Look
-for the following section in the `onInstantiated` method:
-
-```typescript
-const maxSupply: u256 = u256.fromString('1000000000000000000000000000'); // Your max supply. (Here, 1 billion tokens)
-const decimals: u8 = 18; // Your decimals.
-const name: string = 'Test'; // Your token name.
-const symbol: string = 'TEST'; // Your token symbol.
-```
-
-Modify the values as needed for your token.
-
-### 5. Install Dependencies and Build
-
-After customizing your token's properties, build the contract:
-
-- Open your terminal and navigate to the location of the downloaded `OP_20` template folder.
-- Run the following commands:
-
-    ```sh
-    npm install
-    npm run build:token
-    ```
-
-- After building, a `build` folder will be created in the root of the `OP_20` folder. Look for `[nameoftoken].wasm` for
-  the compiled contract.
-
-### 6. Deploy the Token Contract
-
-- Open the OP_WALLET extension and select the "deploy" option.
-- Drag your `.wasm` file or click to choose it.
-- Send your transaction to deploy the token contract onto Bitcoin with OP_NET.
-
-### 7. Add Liquidity on Motoswap
-
-- Copy the token address from your OP_WALLET.
-- Go to [Motoswap](https://motoswap.org/pool) and paste your token address into the top or bottom box.
-- Enter the amount of tokens you wish to add to the liquidity pool.
-- Select the other side of the liquidity pair (e.g., WBTC) and enter the amount of tokens you wish to add.
-- Click "Add Liquidity".
-
-Your token is now tradeable on Motoswap!
+BitLotto is an on-chain lottery running directly on Bitcoin Layer 1 via the OP_NET smart contract protocol. Players buy tickets, a verifiable random function (VRF) selects the winner, and the entire jackpot is paid out in BTC. No trusted intermediary, no custodian — just Bitcoin.
 
 ---
 
-## Customizing Your Token Further
+## How It Works
 
-Now that you've set up the basic token properties, you can add additional functionality to your OP_20 token contract.
-Here are some common customizations:
+1. **Deployer opens a round** — sets ticket price (in satoshis) and max number of tickets
+2. **Players buy tickets** — send BTC to the contract's P2OP address; the deployer registers each purchase on-chain
+3. **Round closes** — when tickets sell out or the deployer closes manually
+4. **VRF draw** — deployer submits a seed from an external VRF oracle (e.g. [drand](https://drand.love/))
+5. **Winner selected** — deterministically computed on-chain as `vrfSeed % ticketCount`
+6. **Jackpot paid** — winner receives the full accumulated jackpot in BTC
 
-### Adding Custom Methods
+All ticket registrations, round state, and winner draws are permanently recorded on Bitcoin L1 and verifiable by anyone.
 
-To add custom functionality to your token, you can define new methods in your contract. For example, let's say you want
-to add an "airdrop" function that distributes tokens to multiple addresses.
+---
 
-#### Example: Airdrop Function
+## Smart Contract
 
-```typescript
-public override callMethod(method: Selector, calldata: Calldata): BytesWriter {
-    switch (method) {
-        case encodeSelector('airdrop()'):
-            return this.airdrop(calldata);
-        default:
-            return super.callMethod(method, calldata);
-    }
-}
+Written in **AssemblyScript**, compiled to **WebAssembly**, deployed on **OP_NET**.
 
-private airdrop(calldata: Calldata): BytesWriter {
-    const drops: Map<Address, u256> = calldata.readAddressValueTuple();
+### Methods
 
-    const addresses: Address[] = drops.keys();
-    for (let i: i32 = 0; i < addresses.length; i++) {
-        const address = addresses[i];
-        const amount = drops.get(address);
+| Method | Access | Description |
+|--------|--------|-------------|
+| `startRound(ticketPrice, maxTickets)` | Deployer | Opens a new lottery round |
+| `registerTicket(buyer)` | Deployer | Records a ticket purchase on-chain |
+| `drawWinner(vrfSeed)` | Deployer | Selects winner and closes the round |
+| `getRoundInfo()` | Public | Returns current round state |
+| `getTicketHolder(index)` | Public | Returns the address at a given ticket index |
 
-        this._mint(address, amount);
-    }
+### Events
 
-    const writer: BytesWriter = new BytesWriter(BOOLEAN_BYTE_LENGTH);
-    writer.writeBoolean(true);
+| Event | Data |
+|-------|------|
+| `RoundStarted` | roundId, ticketPrice, maxTickets |
+| `TicketPurchased` | buyer address, ticket index |
+| `WinnerDrawn` | winner address, jackpot (satoshis), roundId |
 
-    return writer;
-}
+### Storage
+
+- `roundId` — current round number
+- `ticketPrice` — price per ticket in satoshis
+- `maxTickets` — maximum tickets per round
+- `ticketCount` — tickets sold so far
+- `jackpot` — accumulated satoshis in the prize pool
+- `isOpen` — whether a round is currently active
+- `ticketHolders[]` — on-chain array mapping ticket index → buyer address
+
+---
+
+## Architecture
+
+```
+Bitcoin L1 (OP_NET)
+└── BitLotto.wasm              ← Smart contract (AssemblyScript → WASM)
+    ├── startRound()           ← Admin: opens round
+    ├── registerTicket()       ← Admin: records BTC payment
+    ├── drawWinner(vrfSeed)    ← Admin: VRF-based selection
+    └── getRoundInfo()         ← Public: read state
+
+Frontend (React + Vite)
+└── OP_WALLET integration      ← Connect wallet, view rounds, track tickets
+
+Off-chain Operator
+└── Monitors BTC payments to contract address
+└── Calls registerTicket() for verified purchases
+└── Fetches VRF seed from drand and calls drawWinner()
+└── Sends jackpot BTC to winner address
 ```
 
-### Overriding Methods
+> **Note on BTC payouts:** OP_NET v1 does not yet support native BTC transfers *from* a contract. The jackpot amount is tracked and verified fully on-chain via the `WinnerDrawn` event. The operator executes the payout off-chain, signing a standard Bitcoin transaction to the winner's address. This is the same trust model used by early Lightning Network node operators — the on-chain record is the source of truth.
 
-You may want to override some of the existing methods in the `DeployableOP_20` base class. For example, you might want
-to add additional logic when minting tokens.
+---
 
-#### Example: Overriding `_mint` Method
+## Tech Stack
 
-```typescript
-protected _mint(to: Address, amount: u256): void {
-    super._mint(to, amount);
+- **Smart Contract:** AssemblyScript → WebAssembly (OP_NET runtime)
+- **Protocol:** [OP_NET](https://opnet.org) — Bitcoin L1 smart contracts
+- **Randomness:** [drand](https://drand.love/) — publicly verifiable distributed randomness
+- **Frontend:** React + Vite + OP_WALLET SDK
+- **Deploy:** Vercel
 
-    // Add custom logic here
-    Blockchain.log(`Minted ${amount.toString()} tokens to ${to.toString()}`); // Only work inside OP_NET Uint Test Framework
-}
+---
+
+## Project Structure
+
 ```
-
-### Creating Events
-
-Events in OP_NET allow you to emit signals that external observers can listen to. These are useful for tracking specific
-actions within your contract, such as token transfers or approvals.
-
-#### Example: Transfer Event
-
-```typescript
-class TransferEvent extends NetEvent {
-    constructor(from: Address, to: Address, amount: u256) {
-        const writer = new BytesWriter(ADDRESS_BYTE_LENGTH * 2 + U256_BYTE_LENGTH);
-        writer.writeAddress(from);
-        writer.writeAddress(to);
-        writer.writeU256(amount);
-        super('Transfer', writer);
-    }
-}
-
-class MyToken extends DeployableOP_20 {
-    public transfer(to: Address, amount: u256): void {
-        const from: Address = Blockchain.sender;
-        this._mint(to, amount);
-        this.emitEvent(new TransferEvent(from, to, amount));
-    }
-}
-```
-
-### Implementing Additional Security Measures
-
-If you want to add more control over who can call certain methods or add advanced features like pausing token transfers,
-you can implement access control mechanisms.
-
-#### Example: Only Owner Modifier
-
-```typescript
-public mint(to: Address, amount: u256): void {
-    this.onlyOwner(Blockchain.sender); // Restrict minting to the contract owner
-    this._mint(to, amount);
-}
+bitlotto/
+├── src/
+│   └── lottery/
+│       ├── BitLotto.ts        ← Smart contract
+│       └── index.ts           ← OP_NET entry point
+├── frontend/                  ← React app (coming soon)
+├── build/
+│   └── BitLotto.wasm          ← Compiled contract (gitignored)
+├── asconfig.json
+└── README.md
 ```
 
 ---
 
-## Differences Between Solidity and AssemblyScript on OP_NET
+## Getting Started
 
-### Constructor Behavior
+### Prerequisites
 
-- **Solidity:** The constructor runs only once at the time of contract deployment and is used for initializing contract
-  state.
-- **AssemblyScript on OP_NET:** The constructor runs every time the contract is instantiated. Use `onInstantiated()` for
-  initialization that should occur only once.
+- Node.js >= 18
+- [OP_WALLET](https://chromewebstore.google.com/detail/opwallet/pmbjpcmaaladnfpacpmhmnfmpklgbdjb) Chrome extension
 
-### State Management
+### Build the contract
 
-- **Solidity:** Variables declared at the contract level are automatically persistent and are stored in the contract's
-  state.
-- **AssemblyScript on OP_NET:** Persistent state must be managed explicitly using storage classes like `StoredU256`,
-  `StoredBoolean`, and `StoredString`.
+```bash
+git clone https://github.com/dani69654/bitlotto
+cd bitlotto
+npm install
+npx asc src/lottery/index.ts --target lottery
+# Output: build/BitLotto.wasm
+```
 
-### Method Overriding
+### Deploy
 
-- **Solidity:** Method selectors are built-in, and overriding them is straightforward.
-- **AssemblyScript on OP_NET:** Method selectors are manually defined using functions like `encodeSelector()`, and
-  method overriding is handled in `callMethod`.
+1. Open OP_WALLET → switch to Regtest
+2. Click **Deploy** → drag `build/BitLotto.wasm`
+3. Confirm the transaction
 
-### Event Handling
+### Run a round (Regtest)
 
-- **Solidity:** Events are declared and emitted using the `emit` keyword.
-- **AssemblyScript on OP_NET:** Events are custom classes derived from `NetEvent` and are emitted using the `emitEvent`
-  function.
+```bash
+# Get regtest BTC from the faucet
+# https://faucet.opnet.org/
 
----
-
-## Advanced Features
-
-### Implementing Additional Custom Logic
-
-The OPNet runtime allows you to implement complex logic in your token contract. For example, you can add functionality
-such as token freezing, custom transaction fees, or governance mechanisms.
-
-These features are implemented by extending the base `DeployableOP_20` or `OP_20` class and overriding its methods as
-needed.
+# Then interact via OP_WALLET or the frontend
+```
 
 ---
 
-## Additional Documentation
+## Randomness & Fairness
 
-For more detailed explanations on specific topics related to the OPNet runtime, refer to the following documentation:
+BitLotto uses [drand](https://drand.love/) as the VRF oracle — a publicly verifiable, bias-resistant distributed randomness beacon operated by a league of independent organizations (Cloudflare, EPFL, Protocol Labs, etc.).
 
-- [OPNet Runtime Documentation](https://github.com/btc-vision/btc-runtime/tree/main)
-- [Blockchain.md](https://github.com/btc-vision/btc-runtime/blob/main/docs/Blockchain.md)
-- [Contract.md](https://github.com/btc-vision/btc-runtime/blob/main/docs/Contract.md)
-- [Events.md](https://github.com/btc-vision/btc-runtime/blob/main/docs/Events.md)
-- [Pointers.md](https://github.com/btc-vision/btc-runtime/blob/main/docs/Pointers.md)
-- [Storage.md](https://github.com/btc-vision/btc-runtime/blob/main/docs/Storage.md)
+The winner selection is fully deterministic and verifiable:
+
+```
+winnerIndex = vrfSeed % totalTicketsSold
+winner = ticketHolders[winnerIndex]
+```
+
+Anyone can verify the draw by checking:
+1. The `vrfSeed` submitted in the `drawWinner` transaction
+2. The drand round corresponding to the block height
+3. The `ticketHolders` array on-chain
+
+---
+
+## Built for the OP_NET Vibecode Challenge
+
+This project is a submission to [vibecode.finance](https://vibecode.finance) — the Bitcoin L1 builders challenge powered by OP_NET.
+
+**#opnetvibecode** | [@opnetbtc](https://x.com/opnetbtc)
 
 ---
 
 ## License
 
-This project is licensed under the MIT License. View the full license [here](LICENSE.md).
+MIT

@@ -1,0 +1,1025 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BitLotto — Bitcoin L1 Lottery</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Unbounded:wght@300;400;700;900&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #080808;
+      --surface:   #0f0f0f;
+      --border:    #1a1a1a;
+      --border2:   #2a2a2a;
+      --orange:    #f7931a;
+      --orange-dim:#f7931a44;
+      --orange-glow: #f7931a22;
+      --white:     #f0ede8;
+      --muted:     #555;
+      --muted2:    #333;
+      --green:     #22c55e;
+      --red:       #ef4444;
+      --mono:      'Space Mono', monospace;
+      --display:   'Unbounded', sans-serif;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--white);
+      font-family: var(--mono);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── Noise overlay ── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 1000;
+      opacity: 0.4;
+    }
+
+    /* ── Grid background ── */
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(247,147,26,0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(247,147,26,0.03) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ── Layout ── */
+    .app {
+      position: relative;
+      z-index: 1;
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    /* ── Header ── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 28px 0 32px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .logo {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+    }
+
+    .logo-icon {
+      font-size: 22px;
+    }
+
+    .logo h1 {
+      font-family: var(--display);
+      font-size: 20px;
+      font-weight: 900;
+      letter-spacing: -0.5px;
+      color: var(--white);
+    }
+
+    .logo h1 span {
+      color: var(--orange);
+    }
+
+    .logo-sub {
+      font-size: 9px;
+      letter-spacing: 3px;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-top: 2px;
+    }
+
+    .wallet-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: transparent;
+      border: 1px solid var(--border2);
+      color: var(--white);
+      font-family: var(--mono);
+      font-size: 12px;
+      padding: 10px 18px;
+      cursor: pointer;
+      transition: all 0.2s;
+      letter-spacing: 0.5px;
+    }
+
+    .wallet-btn:hover {
+      border-color: var(--orange);
+      color: var(--orange);
+    }
+
+    .wallet-btn.connected {
+      border-color: var(--green);
+      color: var(--green);
+    }
+
+    .wallet-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--green);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    /* ── Jackpot Hero ── */
+    .jackpot-hero {
+      padding: 64px 0 48px;
+      text-align: center;
+      position: relative;
+    }
+
+    .jackpot-label {
+      font-size: 10px;
+      letter-spacing: 4px;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 16px;
+    }
+
+    .jackpot-amount {
+      font-family: var(--display);
+      font-size: clamp(52px, 10vw, 96px);
+      font-weight: 900;
+      color: var(--orange);
+      line-height: 1;
+      letter-spacing: -3px;
+      text-shadow:
+        0 0 80px rgba(247,147,26,0.4),
+        0 0 160px rgba(247,147,26,0.15);
+      animation: glow-pulse 3s ease-in-out infinite;
+    }
+
+    @keyframes glow-pulse {
+      0%, 100% { text-shadow: 0 0 80px rgba(247,147,26,0.4), 0 0 160px rgba(247,147,26,0.15); }
+      50% { text-shadow: 0 0 120px rgba(247,147,26,0.6), 0 0 240px rgba(247,147,26,0.25); }
+    }
+
+    .jackpot-unit {
+      font-family: var(--mono);
+      font-size: 14px;
+      color: var(--muted);
+      letter-spacing: 2px;
+      margin-top: 8px;
+    }
+
+    /* ── Status bar ── */
+    .status-bar {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 32px;
+      padding: 20px 0 48px;
+      flex-wrap: wrap;
+    }
+
+    .status-item {
+      text-align: center;
+    }
+
+    .status-value {
+      font-family: var(--display);
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--white);
+      letter-spacing: -1px;
+    }
+
+    .status-label {
+      font-size: 9px;
+      letter-spacing: 3px;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-top: 4px;
+    }
+
+    .status-divider {
+      width: 1px;
+      height: 40px;
+      background: var(--border2);
+    }
+
+    /* ── Round status badge ── */
+    .round-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 10px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      padding: 6px 14px;
+      border: 1px solid;
+      margin-bottom: 32px;
+    }
+
+    .round-badge.open {
+      border-color: var(--green);
+      color: var(--green);
+    }
+
+    .round-badge.closed {
+      border-color: var(--muted);
+      color: var(--muted);
+    }
+
+    /* ── Main grid ── */
+    .main-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1px;
+      background: var(--border);
+      margin-bottom: 1px;
+    }
+
+    @media (max-width: 700px) {
+      .main-grid { grid-template-columns: 1fr; }
+    }
+
+    /* ── Panel ── */
+    .panel {
+      background: var(--surface);
+      padding: 32px;
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 28px;
+    }
+
+    .panel-title {
+      font-size: 10px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .panel-tag {
+      font-size: 9px;
+      letter-spacing: 1px;
+      padding: 3px 8px;
+      border: 1px solid var(--orange-dim);
+      color: var(--orange);
+    }
+
+    /* ── Buy ticket panel ── */
+    .ticket-price-display {
+      font-family: var(--display);
+      font-size: 36px;
+      font-weight: 700;
+      color: var(--white);
+      letter-spacing: -1px;
+      margin-bottom: 4px;
+    }
+
+    .ticket-price-sub {
+      font-size: 11px;
+      color: var(--muted);
+      margin-bottom: 28px;
+    }
+
+    .progress-bar-wrap {
+      margin-bottom: 24px;
+    }
+
+    .progress-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 10px;
+      color: var(--muted);
+      margin-bottom: 8px;
+      letter-spacing: 1px;
+    }
+
+    .progress-bar {
+      height: 2px;
+      background: var(--border2);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: var(--orange);
+      transition: width 0.6s ease;
+      box-shadow: 0 0 12px var(--orange);
+    }
+
+    .buy-btn {
+      width: 100%;
+      background: var(--orange);
+      color: #000;
+      border: none;
+      font-family: var(--display);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      padding: 16px;
+      cursor: pointer;
+      text-transform: uppercase;
+      transition: all 0.2s;
+    }
+
+    .buy-btn:hover {
+      background: #ffaa33;
+      transform: translateY(-1px);
+      box-shadow: 0 8px 32px rgba(247,147,26,0.3);
+    }
+
+    .buy-btn:disabled {
+      background: var(--muted2);
+      color: var(--muted);
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
+    .btn-note {
+      font-size: 10px;
+      color: var(--muted);
+      text-align: center;
+      margin-top: 12px;
+      letter-spacing: 0.5px;
+    }
+
+    /* ── Ticket holders ── */
+    .holders-list {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      max-height: 280px;
+      overflow-y: auto;
+    }
+
+    .holders-list::-webkit-scrollbar { width: 2px; }
+    .holders-list::-webkit-scrollbar-track { background: transparent; }
+    .holders-list::-webkit-scrollbar-thumb { background: var(--border2); }
+
+    .holder-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+    }
+
+    .holder-index {
+      color: var(--muted);
+      width: 28px;
+      flex-shrink: 0;
+    }
+
+    .holder-addr {
+      color: var(--white);
+      font-family: var(--mono);
+      flex: 1;
+    }
+
+    .holder-you {
+      font-size: 9px;
+      letter-spacing: 2px;
+      color: var(--orange);
+      border: 1px solid var(--orange-dim);
+      padding: 2px 6px;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 40px 0;
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: 1px;
+    }
+
+    /* ── Full-width panel ── */
+    .panel-full {
+      background: var(--surface);
+      padding: 32px;
+      margin-bottom: 1px;
+    }
+
+    /* ── History ── */
+    .history-grid {
+      display: grid;
+      grid-template-columns: 60px 1fr 1fr 140px;
+      gap: 0;
+    }
+
+    @media (max-width: 600px) {
+      .history-grid { grid-template-columns: 40px 1fr 120px; }
+      .history-grid .hide-mobile { display: none; }
+    }
+
+    .history-header {
+      display: contents;
+    }
+
+    .history-header > span {
+      font-size: 9px;
+      letter-spacing: 2px;
+      color: var(--muted);
+      text-transform: uppercase;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .history-row {
+      display: contents;
+    }
+
+    .history-row > span {
+      padding: 14px 0;
+      font-size: 12px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+    }
+
+    .history-row:hover > span {
+      background: rgba(247,147,26,0.03);
+    }
+
+    .round-num {
+      color: var(--muted);
+    }
+
+    .winner-addr {
+      font-family: var(--mono);
+      color: var(--white);
+    }
+
+    .jackpot-val {
+      color: var(--orange);
+      font-weight: 700;
+    }
+
+    .win-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 9px;
+      letter-spacing: 1px;
+      color: var(--green);
+      border: 1px solid rgba(34,197,94,0.3);
+      padding: 3px 8px;
+    }
+
+    /* ── Footer ── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 28px 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: gap;
+      gap: 12px;
+    }
+
+    .footer-left {
+      font-size: 10px;
+      color: var(--muted);
+      letter-spacing: 1px;
+    }
+
+    .footer-links {
+      display: flex;
+      gap: 20px;
+    }
+
+    .footer-links a {
+      font-size: 10px;
+      color: var(--muted);
+      text-decoration: none;
+      letter-spacing: 1px;
+      transition: color 0.2s;
+    }
+
+    .footer-links a:hover { color: var(--orange); }
+
+    /* ── Toast ── */
+    .toast {
+      position: fixed;
+      bottom: 32px;
+      right: 32px;
+      background: var(--surface);
+      border: 1px solid var(--border2);
+      padding: 14px 20px;
+      font-size: 12px;
+      letter-spacing: 0.5px;
+      z-index: 999;
+      animation: slide-up 0.3s ease;
+      max-width: 320px;
+    }
+
+    .toast.success { border-color: var(--green); color: var(--green); }
+    .toast.error { border-color: var(--red); color: var(--red); }
+    .toast.info { border-color: var(--orange); color: var(--orange); }
+
+    @keyframes slide-up {
+      from { opacity: 0; transform: translateY(16px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ── Animations ── */
+    .fade-in {
+      animation: fade-in 0.5s ease both;
+    }
+
+    @keyframes fade-in {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .ticker {
+      display: inline-block;
+      animation: ticker-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    }
+
+    @keyframes ticker-in {
+      from { transform: translateY(20px) scale(0.9); opacity: 0; }
+      to { transform: translateY(0) scale(1); opacity: 1; }
+    }
+
+    /* ── Oracle section ── */
+    .oracle-info {
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
+      padding: 20px;
+      border: 1px solid var(--border2);
+      margin-top: 24px;
+    }
+
+    .oracle-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      margin-top: 4px;
+      flex-shrink: 0;
+      animation: pulse 2s infinite;
+    }
+
+    .oracle-text {
+      font-size: 11px;
+      color: var(--muted);
+      line-height: 1.7;
+      letter-spacing: 0.3px;
+    }
+
+    .oracle-text strong {
+      color: var(--white);
+      font-weight: 400;
+    }
+
+    /* ── No round state ── */
+    .no-round {
+      text-align: center;
+      padding: 60px 0;
+    }
+
+    .no-round-icon {
+      font-size: 48px;
+      margin-bottom: 16px;
+      opacity: 0.3;
+    }
+
+    .no-round-text {
+      font-size: 12px;
+      color: var(--muted);
+      letter-spacing: 1px;
+    }
+
+  </style>
+</head>
+<body>
+<div class="app" id="app">
+
+  <!-- Header -->
+  <header>
+    <div class="logo">
+      <div>
+        <div style="display:flex;align-items:baseline;gap:8px">
+          <span class="logo-icon">🎰</span>
+          <h1>Bit<span>Lotto</span></h1>
+        </div>
+        <div class="logo-sub">Bitcoin L1 · Powered by OP_NET</div>
+      </div>
+    </div>
+    <button class="wallet-btn" id="walletBtn" onclick="toggleWallet()">
+      <span id="walletBtnText">Connect OP_WALLET</span>
+    </button>
+  </header>
+
+  <!-- Jackpot Hero -->
+  <div class="jackpot-hero fade-in">
+    <div class="round-badge open" id="roundBadge">
+      <span class="wallet-dot"></span>
+      <span id="roundBadgeText">ROUND #1 · OPEN</span>
+    </div>
+    <div class="jackpot-label">CURRENT JACKPOT</div>
+    <div class="jackpot-amount" id="jackpotAmount">
+      <span class="ticker" id="jackpotTicker">0</span>
+    </div>
+    <div class="jackpot-unit">SATOSHIS</div>
+  </div>
+
+  <!-- Status Bar -->
+  <div class="status-bar fade-in">
+    <div class="status-item">
+      <div class="status-value" id="ticketsSold">0</div>
+      <div class="status-label">Tickets Sold</div>
+    </div>
+    <div class="status-divider"></div>
+    <div class="status-item">
+      <div class="status-value" id="ticketsLeft">—</div>
+      <div class="status-label">Remaining</div>
+    </div>
+    <div class="status-divider"></div>
+    <div class="status-item">
+      <div class="status-value" id="ticketPrice">1,000</div>
+      <div class="status-label">Sats / Ticket</div>
+    </div>
+    <div class="status-divider"></div>
+    <div class="status-item">
+      <div class="status-value" id="roundId">#1</div>
+      <div class="status-label">Round</div>
+    </div>
+  </div>
+
+  <!-- Main Grid -->
+  <div class="main-grid">
+
+    <!-- Buy Ticket -->
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Buy Ticket</span>
+        <span class="panel-tag">OP_NET</span>
+      </div>
+
+      <div class="ticket-price-display" id="priceDisplay">1,000 <span style="font-size:16px;color:var(--muted);font-family:var(--mono)">sats</span></div>
+      <div class="ticket-price-sub" id="priceBTC">≈ 0.00001000 BTC</div>
+
+      <div class="progress-bar-wrap">
+        <div class="progress-label">
+          <span>TICKETS SOLD</span>
+          <span id="progressLabel">0 / 100</span>
+        </div>
+        <div class="progress-bar">
+          <div class="progress-fill" id="progressFill" style="width:0%"></div>
+        </div>
+      </div>
+
+      <button class="buy-btn" id="buyBtn" onclick="buyTicket()">
+        Buy Ticket — 1,000 sats
+      </button>
+      <div class="btn-note" id="btnNote">Connect wallet to participate</div>
+
+      <div class="oracle-info">
+        <div class="oracle-dot"></div>
+        <div class="oracle-text">
+          Winner drawn using <strong>drand VRF</strong> — publicly verifiable distributed randomness.
+          Selection: <strong>vrfSeed % ticketCount</strong>. Fully on-chain, fully transparent.
+        </div>
+      </div>
+    </div>
+
+    <!-- Ticket Holders -->
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Ticket Holders</span>
+        <span class="panel-tag" id="holdersCount">0 TICKETS</span>
+      </div>
+
+      <div class="holders-list" id="holdersList">
+        <div class="empty-state">No tickets sold yet.<br>Be the first!</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- History -->
+  <div class="panel-full">
+    <div class="panel-header">
+      <span class="panel-title">Past Winners</span>
+      <span class="panel-tag">ON-CHAIN</span>
+    </div>
+
+    <div class="history-grid" id="historyGrid">
+      <div class="history-header">
+        <span>RND</span>
+        <span>WINNER</span>
+        <span class="hide-mobile">JACKPOT</span>
+        <span>STATUS</span>
+      </div>
+      <!-- Populated by JS -->
+    </div>
+
+    <div id="historyEmpty" style="text-align:center;padding:40px 0;color:var(--muted);font-size:12px;letter-spacing:1px">
+      No completed rounds yet.
+    </div>
+  </div>
+
+</div>
+
+<!-- Footer -->
+<div class="app">
+  <footer>
+    <div class="footer-left">BitLotto · Bitcoin L1 · #opnetvibecode</div>
+    <div class="footer-links">
+      <a href="https://github.com/dani69654/bitlotto" target="_blank">GitHub</a>
+      <a href="https://opnet.org" target="_blank">OP_NET</a>
+      <a href="https://drand.love" target="_blank">drand VRF</a>
+    </div>
+  </footer>
+</div>
+
+<!-- Toast container -->
+<div id="toastContainer"></div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+const state = {
+  connected: false,
+  address: null,
+  round: {
+    id: 1,
+    ticketPrice: 1000,
+    maxTickets: 100,
+    ticketCount: 0,
+    jackpot: 0,
+    isOpen: true,
+  },
+  holders: [],
+  history: [
+    // Demo data — replace with on-chain data from OP_NET
+    { round: 0, winner: 'bc1p...3x7f', jackpot: 85000, txid: 'abc123' },
+  ],
+  myTickets: 0,
+};
+
+// ── Wallet ─────────────────────────────────────────────────────────────────
+async function toggleWallet() {
+  if (state.connected) {
+    disconnectWallet();
+    return;
+  }
+  await connectWallet();
+}
+
+async function connectWallet() {
+  // OP_WALLET injects window.opnet
+  if (typeof window.opnet === 'undefined') {
+    showToast('OP_WALLET not detected. Install it from the Chrome Web Store.', 'error');
+    setTimeout(() => {
+      window.open('https://chromewebstore.google.com/detail/opwallet/pmbjpcmaaladnfpacpmhmnfmpklgbdjb', '_blank');
+    }, 1500);
+    return;
+  }
+
+  try {
+    const accounts = await window.opnet.requestAccounts();
+    if (accounts && accounts.length > 0) {
+      state.connected = true;
+      state.address = accounts[0];
+      updateWalletUI();
+      showToast('Wallet connected: ' + truncate(state.address), 'success');
+      fetchContractState();
+    }
+  } catch (e) {
+    showToast('Connection rejected.', 'error');
+  }
+}
+
+function disconnectWallet() {
+  state.connected = false;
+  state.address = null;
+  updateWalletUI();
+  showToast('Wallet disconnected.', 'info');
+}
+
+function updateWalletUI() {
+  const btn = document.getElementById('walletBtn');
+  const txt = document.getElementById('walletBtnText');
+  const note = document.getElementById('btnNote');
+  const buyBtn = document.getElementById('buyBtn');
+
+  if (state.connected) {
+    btn.classList.add('connected');
+    btn.innerHTML = `<span class="wallet-dot"></span><span>${truncate(state.address)}</span>`;
+    note.textContent = 'Transaction via OP_WALLET';
+    buyBtn.disabled = !state.round.isOpen;
+  } else {
+    btn.classList.remove('connected');
+    btn.innerHTML = `<span>Connect OP_WALLET</span>`;
+    note.textContent = 'Connect wallet to participate';
+    buyBtn.disabled = true;
+  }
+}
+
+// ── Contract interaction ───────────────────────────────────────────────────
+async function fetchContractState() {
+  // In production: call getRoundInfo() via OP_NET JSON-RPC
+  // For demo, we use mock state + simulate a few ticket holders
+  state.holders = [
+    { index: 0, address: 'bc1p4y3k...9zx2' },
+    { index: 1, address: 'bc1pq8rm...7ksw' },
+    { index: 2, address: state.address || 'bc1p0000...0000' },
+  ];
+  state.round.ticketCount = 3;
+  state.round.jackpot = 3000;
+  state.myTickets = 1;
+  render();
+}
+
+async function buyTicket() {
+  if (!state.connected) {
+    showToast('Connect your OP_WALLET first.', 'error');
+    return;
+  }
+
+  if (!state.round.isOpen) {
+    showToast('No round is currently open.', 'error');
+    return;
+  }
+
+  // In production: send BTC to contract P2OP address via OP_WALLET
+  // then the operator calls registerTicket(buyer) on-chain
+  showToast('Initiating ticket purchase...', 'info');
+
+  // Simulate async purchase
+  setTimeout(() => {
+    const newIndex = state.round.ticketCount;
+    state.holders.push({ index: newIndex, address: state.address });
+    state.round.ticketCount++;
+    state.round.jackpot += state.round.ticketPrice;
+    state.myTickets++;
+    render();
+    showToast(`Ticket #${newIndex} purchased! Good luck. 🎰`, 'success');
+  }, 1200);
+}
+
+// ── Render ─────────────────────────────────────────────────────────────────
+function render() {
+  const r = state.round;
+
+  // Jackpot
+  document.getElementById('jackpotTicker').textContent = r.jackpot.toLocaleString();
+
+  // Badge
+  const badge = document.getElementById('roundBadge');
+  const badgeText = document.getElementById('roundBadgeText');
+  badge.className = 'round-badge ' + (r.isOpen ? 'open' : 'closed');
+  badgeText.textContent = `ROUND #${r.id} · ${r.isOpen ? 'OPEN' : 'CLOSED'}`;
+
+  // Stats
+  document.getElementById('ticketsSold').textContent = r.ticketCount.toLocaleString();
+  document.getElementById('ticketsLeft').textContent = (r.maxTickets - r.ticketCount).toLocaleString();
+  document.getElementById('ticketPrice').textContent = r.ticketPrice.toLocaleString();
+  document.getElementById('roundId').textContent = `#${r.id}`;
+
+  // Price display
+  document.getElementById('priceDisplay').innerHTML =
+    `${r.ticketPrice.toLocaleString()} <span style="font-size:16px;color:var(--muted);font-family:var(--mono)">sats</span>`;
+  document.getElementById('priceBTC').textContent =
+    `≈ ${(r.ticketPrice / 1e8).toFixed(8)} BTC`;
+  document.getElementById('buyBtn').textContent =
+    `Buy Ticket — ${r.ticketPrice.toLocaleString()} sats`;
+
+  // Progress
+  const pct = r.maxTickets > 0 ? (r.ticketCount / r.maxTickets * 100) : 0;
+  document.getElementById('progressFill').style.width = pct + '%';
+  document.getElementById('progressLabel').textContent = `${r.ticketCount} / ${r.maxTickets}`;
+
+  // Holders
+  document.getElementById('holdersCount').textContent = `${r.ticketCount} TICKETS`;
+  renderHolders();
+
+  // History
+  renderHistory();
+
+  // Buy btn state
+  if (state.connected) {
+    document.getElementById('buyBtn').disabled = !r.isOpen;
+  }
+}
+
+function renderHolders() {
+  const list = document.getElementById('holdersList');
+  if (state.holders.length === 0) {
+    list.innerHTML = `<div class="empty-state">No tickets sold yet.<br>Be the first!</div>`;
+    return;
+  }
+
+  list.innerHTML = state.holders.map(h => `
+    <div class="holder-row">
+      <span class="holder-index">${h.index}</span>
+      <span class="holder-addr">${truncate(h.address)}</span>
+      ${h.address === state.address ? '<span class="holder-you">YOU</span>' : ''}
+    </div>
+  `).join('');
+}
+
+function renderHistory() {
+  const grid = document.getElementById('historyGrid');
+  const empty = document.getElementById('historyEmpty');
+
+  if (state.history.length === 0) {
+    empty.style.display = 'block';
+    // Remove old rows
+    const rows = grid.querySelectorAll('.history-row');
+    rows.forEach(r => r.remove());
+    return;
+  }
+
+  empty.style.display = 'none';
+
+  // Keep header
+  const existing = grid.querySelectorAll('.history-row');
+  existing.forEach(r => r.remove());
+
+  state.history.forEach(h => {
+    grid.innerHTML += `
+      <div class="history-row">
+        <span class="round-num">#${h.round}</span>
+        <span class="winner-addr">${h.winner}</span>
+        <span class="jackpot-val hide-mobile">${h.jackpot.toLocaleString()} sats</span>
+        <span><span class="win-badge">✓ PAID</span></span>
+      </div>
+    `;
+  });
+}
+
+// ── Utils ──────────────────────────────────────────────────────────────────
+function truncate(addr) {
+  if (!addr) return '';
+  if (addr.length <= 16) return addr;
+  return addr.slice(0, 8) + '...' + addr.slice(-4);
+}
+
+function showToast(msg, type = 'info') {
+  const c = document.getElementById('toastContainer');
+  const t = document.createElement('div');
+  t.className = `toast ${type}`;
+  t.textContent = msg;
+  c.appendChild(t);
+  setTimeout(() => t.remove(), 4000);
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+render();
+
+// Animate jackpot on load
+let count = 0;
+const target = state.round.jackpot;
+const ticker = document.getElementById('jackpotTicker');
+const step = Math.max(1, Math.floor(target / 40));
+const interval = setInterval(() => {
+  count = Math.min(count + step, target);
+  ticker.textContent = count.toLocaleString();
+  if (count >= target) clearInterval(interval);
+}, 30);
+
+// Check for OP_WALLET on load
+window.addEventListener('load', () => {
+  if (typeof window.opnet !== 'undefined') {
+    window.opnet.on('accountsChanged', (accounts) => {
+      if (accounts.length > 0) {
+        state.address = accounts[0];
+        updateWalletUI();
+      } else {
+        disconnectWallet();
+      }
+    });
+  }
+});
+</script>
+</body>
+</html>
