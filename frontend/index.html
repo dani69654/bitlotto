@@ -862,14 +862,27 @@ const CONTRACT = 'opt1sqptxaeau5tnlmf6yknz242ntuyzcvksff58r8e70';
 const RPC      = 'https://testnet.opnet.org/api/v1/json-rpc';
 
 // OP_WALLET: use web3 if available (newer versions), otherwise fall back to root provider
-function opnetSend(params) {
+let _txPending = false;
+
+async function opnetSend(params) {
+  if (_txPending) {
+    showToast('Transazione già in corso. Attendi che OP_WALLET risponda.', 'error');
+    return null;
+  }
   const provider = window.opnet?.web3 ?? window.opnet;
   if (!provider?.signAndBroadcastInteraction) {
     throw new Error('OP_WALLET signAndBroadcastInteraction non disponibile');
   }
-  // maximumAllowedSatToSpend must be BigInt but we avoid literal `n` for compat
+  if (!window.opnet) {
+    throw new Error('OP_WALLET non trovato. Installalo e sbloccalo prima.');
+  }
   params.maximumAllowedSatToSpend = BigInt(params.maximumAllowedSatToSpend ?? 10000);
-  return provider.signAndBroadcastInteraction(params);
+  _txPending = true;
+  try {
+    return await provider.signAndBroadcastInteraction(params);
+  } finally {
+    _txPending = false;
+  }
 }
 
 // Pre-computed selectors (via ABICoder.encodeSelector):
@@ -1081,6 +1094,7 @@ async function createRoom() {
   try {
     const calldata = buildCalldata(SEL.startRound, BigInt(buyIn), BigInt(state.selectedRoomSize));
     const result = await opnetSend({ to: CONTRACT, calldata, feeRate: 10, maximumAllowedSatToSpend: 10000 });
+    if (!result) return;
     const txid = result?.[0]?.txid || result?.[1]?.txid || '';
     showToast('Room creata! Tx: ' + truncate(txid), 'success');
     setTimeout(() => fetchContractState(), 8000);
@@ -1099,6 +1113,7 @@ async function buyTicket() {
   try {
     const calldata = buildCalldata(SEL.buyTicket);
     const result = await opnetSend({ to: CONTRACT, calldata, feeRate: 10, maximumAllowedSatToSpend: 10000 });
+    if (!result) return;
     const txid = result?.[0]?.txid || result?.[1]?.txid || '';
     showToast('Ticket acquistato! Tx: ' + truncate(txid), 'success');
     setTimeout(() => fetchContractState(), 8000);
@@ -1120,6 +1135,7 @@ async function drawWinner() {
     showToast('VRF ottenuto. Invio tx drawWinner...', 'info');
     const calldata = buildCalldata(SEL.drawWinner, vrfBig);
     const result = await opnetSend({ to: CONTRACT, calldata, feeRate: 10, maximumAllowedSatToSpend: 10000 });
+    if (!result) return;
     const txid = result?.[0]?.txid || result?.[1]?.txid || '';
     showToast('Vincitore estratto! Tx: ' + truncate(txid), 'success');
     setTimeout(() => fetchContractState(), 8000);
