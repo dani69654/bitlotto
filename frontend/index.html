@@ -861,6 +861,17 @@
 const CONTRACT = 'opt1sqptxaeau5tnlmf6yknz242ntuyzcvksff58r8e70';
 const RPC      = 'https://testnet.opnet.org/api/v1/json-rpc';
 
+// OP_WALLET: use web3 if available (newer versions), otherwise fall back to root provider
+function opnetSend(params) {
+  const provider = window.opnet?.web3 ?? window.opnet;
+  if (!provider?.signAndBroadcastInteraction) {
+    throw new Error('OP_WALLET signAndBroadcastInteraction non disponibile');
+  }
+  // maximumAllowedSatToSpend must be BigInt but we avoid literal `n` for compat
+  params.maximumAllowedSatToSpend = BigInt(params.maximumAllowedSatToSpend ?? 10000);
+  return provider.signAndBroadcastInteraction(params);
+}
+
 // Pre-computed selectors (via ABICoder.encodeSelector):
 const SEL = {
   buyTicket:       0x14c6d469,
@@ -1069,16 +1080,12 @@ async function createRoom() {
   showToast('Creazione room in corso...', 'info');
   try {
     const calldata = buildCalldata(SEL.startRound, BigInt(buyIn), BigInt(state.selectedRoomSize));
-    const result = await window.opnet.web3.signAndBroadcastInteraction({
-      to: CONTRACT,
-      calldata,
-      feeRate: 10,
-      maximumAllowedSatToSpend: 10000n,
-    });
+    const result = await opnetSend({ to: CONTRACT, calldata, feeRate: 10, maximumAllowedSatToSpend: 10000 });
     const txid = result?.[0]?.txid || result?.[1]?.txid || '';
     showToast('Room creata! Tx: ' + truncate(txid), 'success');
     setTimeout(() => fetchContractState(), 8000);
   } catch (e) {
+    console.error('createRoom error:', e);
     showToast('Errore: ' + (e?.message || String(e)), 'error');
   }
 }
@@ -1091,16 +1098,12 @@ async function buyTicket() {
   showToast('Invio transazione acquisto ticket...', 'info');
   try {
     const calldata = buildCalldata(SEL.buyTicket);
-    const result = await window.opnet.web3.signAndBroadcastInteraction({
-      to: CONTRACT,
-      calldata,
-      feeRate: 10,
-      maximumAllowedSatToSpend: 10000n,
-    });
+    const result = await opnetSend({ to: CONTRACT, calldata, feeRate: 10, maximumAllowedSatToSpend: 10000 });
     const txid = result?.[0]?.txid || result?.[1]?.txid || '';
     showToast('Ticket acquistato! Tx: ' + truncate(txid), 'success');
     setTimeout(() => fetchContractState(), 8000);
   } catch (e) {
+    console.error('buyTicket error:', e);
     showToast('Errore: ' + (e?.message || String(e)), 'error');
   }
 }
@@ -1116,16 +1119,12 @@ async function drawWinner() {
     }
     showToast('VRF ottenuto. Invio tx drawWinner...', 'info');
     const calldata = buildCalldata(SEL.drawWinner, vrfBig);
-    const result = await window.opnet.web3.signAndBroadcastInteraction({
-      to: CONTRACT,
-      calldata,
-      feeRate: 10,
-      maximumAllowedSatToSpend: 10000n,
-    });
+    const result = await opnetSend({ to: CONTRACT, calldata, feeRate: 10, maximumAllowedSatToSpend: 10000 });
     const txid = result?.[0]?.txid || result?.[1]?.txid || '';
     showToast('Vincitore estratto! Tx: ' + truncate(txid), 'success');
     setTimeout(() => fetchContractState(), 8000);
   } catch (e) {
+    console.error('drawWinner error:', e);
     showToast('Errore: ' + (e?.message || String(e)), 'error');
   }
 }
