@@ -43,7 +43,7 @@
     "homepage": "https://opnet.org",
     "type": "module",
     "dependencies": {
-        "@btc-vision/as-bignum": "^0.1.2",
+        "@btc-vision/as-bignum": "^1.0.0",
         "@btc-vision/as-loader": "^0.0.0",
         "@btc-vision/assemblyscript": "^0.29.3",
         "@btc-vision/bitcoin": "^7.0.0",
